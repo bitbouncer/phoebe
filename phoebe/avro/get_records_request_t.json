@@ -1,0 +1,14 @@
+{
+  "name": "get_records_request_t", 
+  "type": "record", 
+  "namespace" : "se.csi.phoebe",  
+  "fields":
+  [ 
+    { "name": "records", "type": 
+        { "type": "array", "items": 
+            { "name": "md5", "type": "string" }
+        }
+    }
+  ],
+  "doc:" : "A schema for phoebe get api"
+}
