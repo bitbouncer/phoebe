@@ -1,3 +1,5 @@
+// http://stackoverflow.com/questions/30293400/how-do-i-set-the-boost-logging-severity-level-from-config
+
 #include <fstream>
 #include <assert.h>
 #include <boost/make_shared.hpp>
@@ -204,8 +206,10 @@ main(int argc, char** argv)
     operation_t operation = INSERT_OP;
     bool dry_run = true;
     std::string key_schema_name;
+    boost::log::trivial::severity_level log_level;
 
-    boost::log::core::get()->set_filter(boost::log::trivial::severity >= boost::log::trivial::info);
+    //boost::log::core::get()->set_filter(boost::log::trivial::severity >= boost::log::trivial::trace);
+
     boost::program_options::options_description desc("options");
     desc.add_options()
         ("help", "produce help message")
@@ -218,6 +222,7 @@ main(int argc, char** argv)
         ("file", boost::program_options::value<std::string>(), "file")
         ("operation", boost::program_options::value<std::string>(), "[add rm] (default - insert)")
         ("write,w", boost::program_options::bool_switch()->default_value(false), "write to kafka")
+        ("log_level", boost::program_options::value<boost::log::trivial::severity_level>(&log_level)->default_value(boost::log::trivial::info), "log level to output");
         ;
 
     boost::program_options::variables_map vm;
@@ -233,7 +238,8 @@ main(int argc, char** argv)
 
     boost::program_options::notify(vm);
 
-    boost::log::core::get()->set_filter(boost::log::trivial::severity >= boost::log::trivial::debug);
+    boost::log::core::get()->set_filter(boost::log::trivial::severity >= log_level);
+    BOOST_LOG_TRIVIAL(info) << "loglevel " << log_level;
 
     if (vm.count("help"))
     {
@@ -395,39 +401,41 @@ main(int argc, char** argv)
 
 
     // print out our config...
-    std::cout << "broker(s)      : ";
+    std::string broker_info;
     for (std::vector<csi::kafka::broker_address>::const_iterator i = brokers.begin(); i != brokers.end(); ++i)
     {
-        std::cout << i->host_name << ":" << i->port;
+        broker_info += i->host_name + ":" + std::to_string(i->port);
         if (i != brokers.end() - 1)
-            std::cout << ", ";
+            broker_info += ", ";
     }
-    std::cout << std::endl;
-    std::cout << "topic          : " << topic << std::endl;
+    BOOST_LOG_TRIVIAL(info) << "config, broker(s)           : " << broker_info;
+    BOOST_LOG_TRIVIAL(info) << "config, topic               : " << topic;
 
-    std::cout << "schema registry: ";
+    std::string schema_registrys_info;
     for (std::vector<csi::kafka::broker_address>::const_iterator i = schema_registrys.begin(); i != schema_registrys.end(); ++i)
     {
-        std::cout << i->host_name << ":" << i->port;
+        schema_registrys_info += i->host_name + ":" + std::to_string(i->port);
         if (i != schema_registrys.end() - 1)
-            std::cout << ", ";
+            schema_registrys_info += ", ";
     }
-    std::cout << std::endl;
+    BOOST_LOG_TRIVIAL(info) << "config, schema_registry(s)  : " << schema_registrys_info;
+    BOOST_LOG_TRIVIAL(info) << "config, used schema registry: " << used_schema_registry;
 
-    std::cout << "used schema registry: " << used_schema_registry << std::endl;
-
-    std::cout << "keys          : { ";
+   std::string key_info = "{ ";
     for (std::vector<std::string>::const_iterator i = keys.begin(); i != keys.end(); ++i)
     {
-        std::cout << *i;
+        key_info += *i;
         if (i != keys.end() - 1)
-            std::cout << ", ";
+            key_info += ", ";
+        else 
+            key_info += " }";
     }
-    std::cout << " }" << std::endl;
+    
+    BOOST_LOG_TRIVIAL(info) << "config, keys                : " << key_info;
 
-    std::cout << "key schema name : " << key_schema_name << std::endl;
-    std::cout << "val schema name : " << val_schema_name << std::endl;
 
+    BOOST_LOG_TRIVIAL(info) << "config, key schema name     : " << key_schema_name;
+    BOOST_LOG_TRIVIAL(info) << "config, val schema name     : " << val_schema_name;
 
     boost::asio::io_service ios;
     std::auto_ptr<boost::asio::io_service::work> work(new boost::asio::io_service::work(ios));
@@ -437,7 +445,7 @@ main(int argc, char** argv)
     confluent::codec    avro_codec(registry);
 
     csi::kafka::highlevel_producer producer(ios, topic, -1, 200, 1000000);
-    if (!dry_run)
+    //if (!dry_run)
     {
         producer.connect(brokers);
         BOOST_LOG_TRIVIAL(info) << "connected to kafka";
@@ -612,6 +620,7 @@ main(int argc, char** argv)
     }
 
     BOOST_LOG_TRIVIAL(info) << "stopping threads";
+    work.reset();
     ios.stop();
     BOOST_LOG_TRIVIAL(info) << "exiting";
     return 0;
