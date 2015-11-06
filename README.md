@@ -1,4 +1,6 @@
-# phoebe is an in-memory read only key-value store that uses kafka compacted topics for persistense.
+# phoebe is a fast read only, in memory, key-value database written in C++
 
-a typical use-case would be a authentication database for users in the range of 100M users
+phoebe uses kafka compacted topics for persistense.
+
+a typical use-case would be a authentication database for users in the range of 10M users per server
 
