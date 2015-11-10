@@ -427,6 +427,10 @@ main(int argc, char** argv)
 			avro::DataFileReader<avro::GenericDatum> dfr(i->generic_string().c_str());
 			const avro::ValidSchema& schema = dfr.dataSchema();
 
+            std::cerr << std::endl;
+            schema.toJson(std::cerr);
+            std::cerr << std::endl;
+
 			avro::GenericDatum datum(schema);
 			std::vector<std::string> sql_values;
 			while (dfr.read(datum))
@@ -435,7 +439,7 @@ main(int argc, char** argv)
 				//std::cerr << values << std::endl;
 
 				sql_values.push_back(values);
-				if (sql_values.size() > 100000)
+				if (sql_values.size() > 10000)
 				{
 					std::string column_names = avro2sql_column_names(schema, datum);
 					std::string statement = "insert into " + table_name + " " + column_names + " VALUES\n";
