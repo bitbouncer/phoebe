@@ -264,7 +264,6 @@ boost::shared_ptr<avro::Schema>  schema_for_oid(Oid typid)
     return union_schema;
 }
 
-
 boost::shared_ptr<avro::RecordSchema> schema_for_table_row(std::string schema_name, boost::shared_ptr<PGresult> res)
 {
     boost::shared_ptr<avro::RecordSchema> record_schema = boost::make_shared<avro::RecordSchema>(schema_name);
@@ -683,3 +682,66 @@ std::string avro2sql_column_names(const avro::ValidSchema& schema, avro::Generic
     */
     return s;
 }
+
+
+static Oid avro_type_to_oid(avro::Type avro_type)
+{
+	switch (avro_type)
+	{
+	case avro::AVRO_STRING: return TEXTOID;
+	case avro::AVRO_BYTES:  return BYTEAOID;
+	case avro::AVRO_INT:    return INT4OID;
+	case avro::AVRO_LONG:   return INT8OID;
+	case avro::AVRO_FLOAT:  return FLOAT4OID;
+	case avro::AVRO_DOUBLE: return FLOAT8OID;
+	case avro::AVRO_BOOL:   return BOOLOID;
+	case avro::AVRO_RECORD:
+	case avro::AVRO_ENUM:
+	case avro::AVRO_ARRAY:
+	case avro::AVRO_MAP:
+	case avro::AVRO_UNION:
+	case avro::AVRO_FIXED:
+	case avro::AVRO_NULL:
+	default:
+		std::cerr << "unexpectd / non supported type e:" << avro_type << std::endl;;
+		assert(false);
+	}
+}
+
+static std::string to_string(Oid oid)
+{
+	switch ((PG_OIDS)oid)
+	{
+	case BOOLOID:    return "boolean";
+	case FLOAT4OID:  return "float4";
+	case FLOAT8OID:  return "float8";
+	case INT2OID:    return "smallint";
+	case INT4OID:    return "integer";
+	case INT8OID:    return "bigint";
+	case BYTEAOID:   return "bytea";
+	case CHAROID:    return "char";
+	case NAMEOID:    return "name";
+	case TEXTOID:    return "text";
+	default:
+		std::cerr << "unexpectd / non supported type e:" << oid << std::endl;;
+		assert(false);
+		break;
+	}
+}
+
+std::string avro2sql_create_table_statement(const std::string& tablename, const avro::ValidSchema& schema)
+{
+	auto r = schema.root();
+	assert(r->type() == avro::AVRO_RECORD);
+	std::string s = "CREATE TABLE " + tablename + " (\n";
+	size_t sz = r->names();
+	for (int i = 0; i != sz; ++i)
+	{
+		s += r->nameAt(i) + " " + to_string(avro_type_to_oid(r->leafAt(i)->type()));
+		if (i != sz - 1)
+			s += ",";
+	}
+	s += ")";
+	return s;
+}
+

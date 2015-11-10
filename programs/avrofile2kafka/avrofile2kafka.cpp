@@ -220,7 +220,7 @@ main(int argc, char** argv)
         ("key", boost::program_options::value<std::string>(), "key")
         ("key_schema_name", boost::program_options::value<std::string>(), "key_schema_name")
         ("file", boost::program_options::value<std::string>(), "file")
-        ("operation", boost::program_options::value<std::string>(), "[add rm] (default - insert)")
+        ("operation", boost::program_options::value<std::string>(), "[insert delete] (default - insert)")
         ("write,w", boost::program_options::bool_switch()->default_value(false), "write to kafka")
         ("log_level", boost::program_options::value<boost::log::trivial::severity_level>(&log_level)->default_value(boost::log::trivial::info), "log level to output");
         ;
@@ -327,15 +327,32 @@ main(int argc, char** argv)
         return 0;
     }
 
+	std::vector<boost::filesystem::path> files;
+
     if (vm.count("file"))
     {
         filename = vm["file"].as<std::string>();
 
         if (!boost::filesystem::exists(filename))
         {
-            std::cout << "file " << filename << " does not exists " << std::endl;
+			std::cout << "file " << filename << " does not exists " << std::endl;
             return -1;
         }
+		if (!boost::filesystem::is_directory(filename))
+		{
+			for (boost::filesystem::directory_iterator itr(filename); itr != boost::filesystem::directory_iterator(); ++itr)
+			{
+			
+				std::cout << itr->path().filename() << ' '; // display filename only
+				if (is_regular_file(itr->status())) std::cout << " [" << file_size(itr->path()) << ']';
+				std::cout << '\n';
+				files.insert(files.begin(), *itr);
+			}
+		}
+		else
+		{
+			files.push_back(filename);
+		}
     }
     else
     {

@@ -48,6 +48,6 @@ std::string avro2sql_values(const avro::ValidSchema& schema, avro::GenericDatum&
 std::string avro2sql_table_name(boost::shared_ptr<avro::ValidSchema> schema, avro::GenericDatum& datum);
 std::string avro2sql_column_names(const avro::ValidSchema& schema, avro::GenericDatum& datum);
 
-
+std::string avro2sql_create_table_statement(const std::string& tablename, const avro::ValidSchema& schema);
 
 //avro::NodePtr schema_for_table_row(boost::shared_ptr<PGresult> res);

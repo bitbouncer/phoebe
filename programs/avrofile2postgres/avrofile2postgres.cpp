@@ -189,12 +189,20 @@ boost::shared_ptr<avro::GenericDatum> get_key(avro::GenericDatum& value_datum, c
     return key;
 }
 
-enum operation_t { INSERT_OP, DELETE_OP };
+enum operation_t { CREATE_TABLE, INSERT_OP, DELETE_OP };
+
+struct sort_functor
+{
+	bool operator ()(const boost::filesystem::path& a, const boost::filesystem::path & b)
+	{
+		return a.generic_string() < b.generic_string();
+	}
+};
 
 int
 main(int argc, char** argv)
 {
-    std::vector<std::string> keys;
+    //std::vector<std::string> keys;
     std::string filename;
 
     //std::string connect_string = "user=postgres password=postgres dbname=at_home";
@@ -208,10 +216,11 @@ main(int argc, char** argv)
     boost::program_options::options_description desc("options");
     desc.add_options()
         ("help", "produce help message")
-        ("key", boost::program_options::value<std::string>(), "key")
+        //("key", boost::program_options::value<std::string>(), "key")
         ("file", boost::program_options::value<std::string>(), "file")
         ("table_name", boost::program_options::value<std::string>(), "table_name")
-        ("operation", boost::program_options::value<std::string>(), "[add rm] (default - insert)")
+		("connect_string", boost::program_options::value<std::string>(), "connect_string")
+        ("operation", boost::program_options::value<std::string>(), "[add rm ct] (default - add)")
         ("write,w", boost::program_options::bool_switch()->default_value(false), "write to kafka")
         ("log_level", boost::program_options::value<boost::log::trivial::severity_level>(&log_level)->default_value(boost::log::trivial::info), "log level to output");
     ;
@@ -238,7 +247,8 @@ main(int argc, char** argv)
         return 0;
     }
 
-    if (vm.count("key"))
+    /*
+	if (vm.count("key"))
     {
         std::string s = vm["key"].as<std::string>();
         size_t last_separator = s.find_last_of(',');
@@ -256,25 +266,45 @@ main(int argc, char** argv)
         std::cout << "--key must be specified" << std::endl;
         return 0;
     }
+	*/
 
-    if (vm.count("file"))
-    {
-        filename = vm["file"].as<std::string>();
+	std::vector<boost::filesystem::path> files;
 
-        if (!boost::filesystem::exists(filename))
-        {
-            std::cout << "file " << filename << " does not exists " << std::endl;
-            return -1;
-        }
-    }
-    else
-    {
-        std::cout << "--file must be specified" << std::endl;
-        return -1;
-    }
-    avro::DataFileReader<avro::GenericDatum> dfr(filename.c_str());
+	if (vm.count("file"))
+	{
+		filename = vm["file"].as<std::string>();
 
-    const avro::ValidSchema& schema = dfr.dataSchema();
+		if (!boost::filesystem::exists(filename))
+		{
+			std::cout << "file " << filename << " does not exists " << std::endl;
+			return -1;
+		}
+		if (boost::filesystem::is_directory(filename))
+		{
+			for (boost::filesystem::directory_iterator itr(filename); itr != boost::filesystem::directory_iterator(); ++itr)
+			{
+
+				std::cout << itr->path().generic_string() << ' '; 
+				if (is_regular_file(itr->status())) std::cout << " [" << file_size(itr->path()) << ']';
+				std::cout << '\n';
+				files.insert(files.begin(), *itr);
+			}
+			std::sort(files.begin(), files.end(), sort_functor());
+		}
+		else
+		{
+			files.push_back(filename);
+		}
+	}
+	else
+	{
+		std::cout << "--file must be specified" << std::endl;
+		return -1;
+	}
+
+
+
+
     /*
     {
     std::stringstream ss;
@@ -292,23 +322,27 @@ main(int argc, char** argv)
     }
     */
 
-    std::string val_schema_name = schema.root()->name().fullname();
+    //std::string val_schema_name = schema.root()->name().fullname();
 
     if (vm.count("operation"))
     {
         std::string op = vm["operation"].as<std::string>();
 
-        if (op == "insert")
+        if (op == "add")
         {
             operation = INSERT_OP;
         }
-        else if (op == "delete")
+        else if (op == "rm")
         {
             operation = DELETE_OP;
         }
+		else if (op == "ct")
+		{
+			operation = CREATE_TABLE;
+		}
         else
         {
-            std::cout << "invalid operation [insert, delete]" << std::endl;
+            std::cout << "invalid operation [add, rm]" << std::endl;
             return -1;
         }
     }
@@ -316,7 +350,8 @@ main(int argc, char** argv)
     if (vm["write"].as<bool>())
         dry_run = false;
 
-    std::string key_info = "{ ";
+    /*
+	std::string key_info = "{ ";
     for (std::vector<std::string>::const_iterator i = keys.begin(); i != keys.end(); ++i)
     {
         key_info += *i;
@@ -325,6 +360,7 @@ main(int argc, char** argv)
         else
             key_info += " }";
     }
+	*/
 
     if (vm.count("table_name"))
     {
@@ -336,7 +372,17 @@ main(int argc, char** argv)
         return -1;
     }
 
-    BOOST_LOG_TRIVIAL(info) << "config, keys                : " << key_info;
+	if (vm.count("connect_string"))
+	{
+		connect_string = vm["connect_string"].as<std::string>();
+	}
+	else
+	{
+		std::cout << "--connect_string must be specified" << std::endl;
+		return -1;
+	}
+
+    //BOOST_LOG_TRIVIAL(info) << "config, keys                : " << key_info;
     BOOST_LOG_TRIVIAL(info) << "config, table_name          : " << table_name;
     BOOST_LOG_TRIVIAL(info) << "config, connect_string      : " << connect_string;
 
@@ -361,67 +407,88 @@ main(int argc, char** argv)
         return -1;
     }
 
-    std::cerr << std::endl;
-    schema.toJson(std::cerr);
-    std::cerr << std::endl;
+    //std::cerr << std::endl;
+    //schema.toJson(std::cerr);
+    //std::cerr << std::endl;
 
-    avro::GenericDatum datum(schema);
-    std::vector<std::string> sql_values;
-    while (dfr.read(datum))
-    {
-        std::string values = avro2sql_values(schema, datum);
-        std::cerr << values << std::endl;
+	/*
+	if (operation == CREATE_TABLE)
+	{
+		std::string create_statement = avro2sql_create_table_statement(table_name, schema);
+		std::cerr << create_statement << std::endl;
+	}
+	*/
 
-        sql_values.push_back(values);
-        if (sql_values.size() > 1000)
-        {
-            std::string column_names = avro2sql_column_names(schema, datum);
-            std::string statement = "insert into " + table_name + " " + column_names + " VALUES\n";
+	if (operation == INSERT_OP)
+	{
+		for (std::vector<boost::filesystem::path>::const_iterator i = files.begin(); i != files.end(); ++i)
+		{
+			std::cerr << "adding file: " << i->generic_string().c_str() << std::endl;
+			avro::DataFileReader<avro::GenericDatum> dfr(i->generic_string().c_str());
+			const avro::ValidSchema& schema = dfr.dataSchema();
 
-            for (std::vector<std::string>::const_iterator i = sql_values.begin(); i != sql_values.end(); ++i)
-            {
-                const char* ch = i != (sql_values.end() - 1) ? ",\n" : ";\n";
-                statement += *i + ch;
-            }
-            if (!dry_run)
-            {
-                std::cerr << connection->get_log_id() << " inserting!!" << std::endl;
-                auto res = connection->exec(statement);
-                if (res.second)
-                {
-                    std::cerr << connection->get_log_id() << " insert failed ec:" << ec << " last_error:" << connection->last_error() << std::endl;
-                    return -1;
-                }
-                std::cerr << connection->get_log_id() << " done!!" << std::endl;
-            }
-            sql_values.clear();
-        }
-    }
+			avro::GenericDatum datum(schema);
+			std::vector<std::string> sql_values;
+			while (dfr.read(datum))
+			{
+				std::string values = avro2sql_values(schema, datum);
+				//std::cerr << values << std::endl;
 
-    // write final part
-    if (sql_values.size() > 0)
-    {
-        std::string column_names = avro2sql_column_names(schema, datum);
-        std::string statement = "insert into " + table_name + " " + column_names + " VALUES\n";
+				sql_values.push_back(values);
+				if (sql_values.size() > 1000)
+				{
+					std::string column_names = avro2sql_column_names(schema, datum);
+					std::string statement = "insert into " + table_name + " " + column_names + " VALUES\n";
 
-        for (std::vector<std::string>::const_iterator i = sql_values.begin(); i != sql_values.end(); ++i)
-        {
-            const char* ch = i != (sql_values.end() - 1) ? ",\n" : ";\n";
-            statement += *i + ch;
-        }
+					for (std::vector<std::string>::const_iterator i = sql_values.begin(); i != sql_values.end(); ++i)
+					{
+						const char* ch = i != (sql_values.end() - 1) ? ",\n" : ";\n";
+						statement += *i + ch;
+					}
+					if (!dry_run)
+					{
+						//std::cerr << connection->get_log_id() << " inserting!!" << std::endl;
+						auto res = connection->exec(statement);
+						if (res.first)
+						{
+							std::cerr << connection->get_log_id() << " insert failed ec:" << ec << " last_error:" << connection->last_error() << std::endl;
+							return -1;
+						}
+						//std::cerr << connection->get_log_id() << " done!!" << std::endl;
+					}
+					sql_values.clear();
+				}
+			}
 
-        if (!dry_run)
-        {
-            std::cerr << connection->get_log_id() << " inserting!!" << std::endl;
-            auto res = connection->exec(statement);
-            if (res.second)
-            {
-                std::cerr << connection->get_log_id() << " insert failed ec:" << ec << " last_error:" << connection->last_error() << std::endl;
-                return -1;
-            }
-            std::cerr << connection->get_log_id() << " done!!" << std::endl;
-        }
-    }
+			// write final part
+			if (sql_values.size() > 0)
+			{
+				std::string column_names = avro2sql_column_names(schema, datum);
+				std::string statement = "insert into " + table_name + " " + column_names + " VALUES\n";
+
+				for (std::vector<std::string>::const_iterator i = sql_values.begin(); i != sql_values.end(); ++i)
+				{
+					const char* ch = i != (sql_values.end() - 1) ? ",\n" : ";\n";
+					statement += *i + ch;
+				}
+
+				if (!dry_run)
+				{
+					//std::cerr << connection->get_log_id() << " inserting!!" << std::endl;
+					auto res = connection->exec(statement);
+					if (res.first)
+					{
+						std::cerr << connection->get_log_id() << " insert failed ec:" << ec << " last_error:" << connection->last_error() << std::endl;
+						return -1;
+					}
+					//std::cerr << connection->get_log_id() << " done!!" << std::endl;
+				}
+			}
+		}
+	}
+
+
+
 
     //start transaction?
     //commit??

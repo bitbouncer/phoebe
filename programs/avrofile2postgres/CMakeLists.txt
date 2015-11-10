@@ -6,11 +6,11 @@ if(WIN32)
     include_directories(${PGSQLSRC}/include/server)
     link_directories(${CMAKE_SOURCE_DIR}/lib/$(Platform))
     link_directories("C:/Program Files/PostgreSQL/9.4/lib")
-    set(EXT_LIBS kp-utils postgres_asio libpq ${EXT_LIBS}) 
+    set(EXT_LIBS postgres_asio libpq ${EXT_LIBS}) 
 endif()    
 
 if(__LINUX__)
-     set(EXT_LIBS kp-utils postgres_asio pq ${EXT_LIBS})
+     set(EXT_LIBS postgres_asio pq ${EXT_LIBS})
 endif()
 
 SET(SRCS
