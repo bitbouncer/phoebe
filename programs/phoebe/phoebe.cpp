@@ -43,7 +43,7 @@
 #include <boost/uuid/uuid_io.hpp>
 #include <boost/uuid/uuid_generators.hpp>
 
-
+size_t _remaining_records = 0;
 
 static boost::uuids::uuid get_md5(const void* data, size_t size)
 {
@@ -62,8 +62,6 @@ class rest_handler
 public:
     rest_handler(boost::asio::io_service& ios, const std::string& topic_name) :
         _consumer(ios, topic_name, 500, 1000000),
-        _highwater_mark_offset(0),
-        _last_offset(0),
         _insync(false)
     {
     }
@@ -86,10 +84,12 @@ public:
 
             if (response->error_code)
             {
-                BOOST_LOG_TRIVIAL(error) << "stream failed for partition " << response->partition_id << " ec:" << csi::kafka::to_string((csi::kafka::error_codes) response->error_code);
+                BOOST_LOG_TRIVIAL(error) << "stream failed for partition: "  << response->partition_id << " ec:" << csi::kafka::to_string((csi::kafka::error_codes) response->error_code);
                 return;
             }
 
+            int partition_id = response->partition_id;
+            int last_offset = -1;
             for (std::vector<std::shared_ptr<csi::kafka::basic_message>>::const_iterator i = response->messages.begin(); i != response->messages.end(); ++i)
             {
                 //std::map<boost::uuids::uuid, boost::shared_ptr<std::vector<uint8_t>>> data;
@@ -112,24 +112,35 @@ public:
                         _data[key] = boost::make_shared<std::vector<uint8_t>>((*i)->value.value());
                 }
 
-                _last_offset = (*i)->offset;
+                last_offset = (*i)->offset;
             }
-            _highwater_mark_offset = response->highwater_mark_offset;
+            if (last_offset >= 0)
+                _last_offset[partition_id] = last_offset;
 
-            //update load balancer health check and log.
-            if (_highwater_mark_offset == _last_offset)
+            _highwater_mark_offset[partition_id] = response->highwater_mark_offset;
+
+            size_t remaining_records=0;
+            for (std::map<int, int64_t>::const_iterator i = _highwater_mark_offset.begin(); i != _highwater_mark_offset.end(); ++i)
+                remaining_records += (i->second - 1) - _last_offset[i->first];
+
+            if (!_insync && remaining_records==0)
             {
-                if (!_insync)
-                {
-                    _insync = true;
-                    BOOST_LOG_TRIVIAL(info) << "database in sync";
-                }
+                _insync = true;
+                //BOOST_LOG_TRIVIAL(info) << "all partitions in sync";
             }
-            else
+            else if (_insync && remaining_records>0)
             {
                 _insync = false;
-                BOOST_LOG_TRIVIAL(warning) << "partition out of sync offset" << _last_offset << " (" << _highwater_mark_offset << ")";
             }
+
+            /*
+            if (remaining_records > 0)
+            {
+                BOOST_LOG_TRIVIAL(info) << "not synced, remaining: " << remaining_records;
+            }
+            */
+
+            _remaining_records = remaining_records;
         });
     }
 
@@ -159,7 +170,7 @@ public:
 
             if (!_insync)
             {
-                BOOST_LOG_TRIVIAL(warning) << "rpc when not in sync, " << (_highwater_mark_offset - _last_offset) << " items remaning";
+                BOOST_LOG_TRIVIAL(warning) << "rpc when not in sync, service unavailable";
                 context->reply().create(csi::http::service_unavailable);
                 return;
             }
@@ -209,8 +220,8 @@ public:
     boost::mutex                   _mutex;
     csi::kafka::highlevel_consumer _consumer;
     std::map<boost::uuids::uuid, boost::shared_ptr<std::vector<uint8_t>>> _data;
-    uint64_t _highwater_mark_offset;
-    uint64_t _last_offset;
+    std::map<int, int64_t>        _highwater_mark_offset;
+    std::map<int, int64_t>        _last_offset;
     bool _insync;
 };
 
@@ -331,7 +342,7 @@ int main(int argc, char** argv)
                     rx_msg_sec_total += (*i).rx_msg_sec;
                     rx_kb_sec_total += (*i).rx_kb_sec;
                 }
-                BOOST_LOG_TRIVIAL(info) << "RX: " << rx_msg_sec_total << " msg/s \t" << (rx_kb_sec_total / 1024) << "MB/s";
+                BOOST_LOG_TRIVIAL(info) << "RX: " << rx_msg_sec_total << " msg/s \t" << (rx_kb_sec_total / 1024) << "MB/s, consumer lag: " << _remaining_records;
             }
         });
 

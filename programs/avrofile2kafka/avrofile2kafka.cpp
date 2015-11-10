@@ -188,6 +188,14 @@ boost::shared_ptr<avro::GenericDatum> get_key(avro::GenericDatum& value_datum, c
     return key;
 }
 
+struct sort_functor
+{
+    bool operator ()(const boost::filesystem::path& a, const boost::filesystem::path & b)
+    {
+        return a.generic_string() < b.generic_string();
+    }
+};
+
 enum operation_t { INSERT_OP, DELETE_OP };
 
 int
@@ -213,7 +221,7 @@ main(int argc, char** argv)
     boost::program_options::options_description desc("options");
     desc.add_options()
         ("help", "produce help message")
-        ("topic", boost::program_options::value<std::string>()->default_value(""), "topic")
+        ("topic", boost::program_options::value<std::string>(), "topic")
         ("broker", boost::program_options::value<std::string>(), "broker")
         ("schema_registry", boost::program_options::value<std::string>(), "schema_registry")
         ("schema_registry_port", boost::program_options::value<int>()->default_value(8081), "schema_registry_port")
@@ -338,7 +346,7 @@ main(int argc, char** argv)
 			std::cout << "file " << filename << " does not exists " << std::endl;
             return -1;
         }
-		if (!boost::filesystem::is_directory(filename))
+		if (boost::filesystem::is_directory(filename))
 		{
 			for (boost::filesystem::directory_iterator itr(filename); itr != boost::filesystem::directory_iterator(); ++itr)
 			{
@@ -348,6 +356,7 @@ main(int argc, char** argv)
 				std::cout << '\n';
 				files.insert(files.begin(), *itr);
 			}
+            std::sort(files.begin(), files.end(), sort_functor());
 		}
 		else
 		{
@@ -359,9 +368,6 @@ main(int argc, char** argv)
         std::cout << "--file must be specified" << std::endl;
         return -1;
     }
-    avro::DataFileReader<avro::GenericDatum> dfr(filename.c_str());
-
-    const avro::ValidSchema& schema = dfr.dataSchema();
     /*
     {
     std::stringstream ss;
@@ -379,11 +385,16 @@ main(int argc, char** argv)
     }
     */
 
-    std::string val_schema_name = schema.root()->name().fullname();
-
-    topic = vm["topic"].as<std::string>();
-    if (topic == "")
-        topic = val_schema_name;
+    //std::string val_schema_name = schema.root()->name().fullname();
+    if (vm.count("topic"))
+    {
+        topic = vm["topic"].as<std::string>();
+    }
+    else
+    {
+        std::cout << "--topic must be specified" << std::endl;
+        return -1;
+    }
 
     if (vm.count("key_schema_name"))
     {
@@ -393,6 +404,18 @@ main(int argc, char** argv)
     {
         key_schema_name = topic + "." + "key";
     }
+
+    //check if key_schema_name is ok.
+    try
+    {
+        avro::Name an(key_schema_name);
+    }
+    catch (std::exception& e)
+    {
+        std::cout << "namecheck on key_schema_name: " << key_schema_name << " failed, reason: " << e.what() << std::endl;
+        return - 1;
+    }
+
 
     if (vm.count("operation"))
     {
@@ -452,7 +475,7 @@ main(int argc, char** argv)
 
 
     BOOST_LOG_TRIVIAL(info) << "config, key schema name     : " << key_schema_name;
-    BOOST_LOG_TRIVIAL(info) << "config, val schema name     : " << val_schema_name;
+    //BOOST_LOG_TRIVIAL(info) << "config, val schema name     : " << val_schema_name;
 
     boost::asio::io_service ios;
     std::auto_ptr<boost::asio::io_service::work> work(new boost::asio::io_service::work(ios));
@@ -493,146 +516,164 @@ main(int argc, char** argv)
         }
     });
 
-    auto keyschema = get_key_schema(key_schema_name, keys, false, dfr.dataSchema());
+    
 
     if (operation == INSERT_OP)
     {
-        //std::string val_schema_name = schema.root()->name().fullname();
-        //std::cout << "key schema name : " << key_schema_name << std::endl;
-        //std::cout << "val schema name : " << val_schema_name << std::endl;
-
-        BOOST_LOG_TRIVIAL(trace) << "registering schemas";
-        auto key_res = avro_codec.put_schema(key_schema_name, keyschema);
-        if (key_res.first != 0)
+        for (std::vector<boost::filesystem::path>::const_iterator i = files.begin(); i != files.end(); ++i)
         {
-            BOOST_LOG_TRIVIAL(error) << "registering " << key_schema_name << " at " << used_schema_registry << " failed, ec:" << confluent::codec::to_string((confluent::codec::error_code_t) key_res.first);
-            return -1;
-        }
+            BOOST_LOG_TRIVIAL(info) << "adding file: " << i->generic_string().c_str();
+            avro::DataFileReader<avro::GenericDatum> dfr(i->generic_string().c_str());
+            const avro::ValidSchema& schema = dfr.dataSchema();
+            
+            auto keyschema = get_key_schema(key_schema_name, keys, false, dfr.dataSchema());
+            std::string val_schema_name = schema.root()->name().fullname();
 
-        auto val_res = avro_codec.put_schema(val_schema_name, boost::make_shared<avro::ValidSchema>(dfr.dataSchema()));
-        if (val_res.first != 0)
-        {
-            BOOST_LOG_TRIVIAL(error) << "registering " << val_schema_name << " at " << used_schema_registry << " failed ec : " << confluent::codec::to_string((confluent::codec::error_code_t) val_res.first);
-            return -1;
-        }
-        int32_t key_id = key_res.second;
-        int32_t val_id = val_res.second;
-        BOOST_LOG_TRIVIAL(info) << "registering schemas done";
+            //std::string val_schema_name = schema.root()->name().fullname();
+            //std::cout << "key schema name : " << key_schema_name << std::endl;
+            //std::cout << "val schema name : " << val_schema_name << std::endl;
 
-        try
-        {
-            avro::GenericDatum datum(schema);
-            std::vector<std::shared_ptr<csi::kafka::basic_message>> messages;
-            while (dfr.read(datum))
+            BOOST_LOG_TRIVIAL(trace) << "registering schemas";
+            auto key_res = avro_codec.put_schema(key_schema_name, keyschema);
+            if (key_res.first != 0)
             {
-                std::shared_ptr<csi::kafka::basic_message> msg(new csi::kafka::basic_message());
+                BOOST_LOG_TRIVIAL(error) << "registering " << key_schema_name << " at " << used_schema_registry << " failed, ec:" << confluent::codec::to_string((confluent::codec::error_code_t) key_res.first);
+                return -1;
+            }
 
-                auto key = get_key(datum, *keyschema);
+            auto val_res = avro_codec.put_schema(val_schema_name, boost::make_shared<avro::ValidSchema>(dfr.dataSchema()));
+            if (val_res.first != 0)
+            {
+                BOOST_LOG_TRIVIAL(error) << "registering " << val_schema_name << " at " << used_schema_registry << " failed ec : " << confluent::codec::to_string((confluent::codec::error_code_t) val_res.first);
+                return -1;
+            }
+            int32_t key_id = key_res.second;
+            int32_t val_id = val_res.second;
+            BOOST_LOG_TRIVIAL(info) << "registering schemas done";
 
-                //encode key
+            try
+            {
+                avro::GenericDatum datum(schema);
+                std::vector<std::shared_ptr<csi::kafka::basic_message>> messages;
+                while (dfr.read(datum))
                 {
-                    auto os = avro_codec.encode_nonblock(key_id, key);
-                    size_t sz = os->byteCount();
-                    auto is = avro::memoryInputStream(*os);
-                    avro::StreamReader stream_reader(*is);
-                    msg->key.set_null(false);
-                    msg->key.resize(sz);
-                    stream_reader.readBytes(msg->key.data(), sz);
-                }
+                    std::shared_ptr<csi::kafka::basic_message> msg(new csi::kafka::basic_message());
 
-                //encode value
-                {
-                    auto os = avro_codec.encode_nonblock(val_id, datum);
-                    size_t sz = os->byteCount();
-                    auto is = avro::memoryInputStream(*os);
-                    avro::StreamReader stream_reader(*is);
-                    msg->value.set_null(false);
-                    msg->value.resize(sz);
-                    stream_reader.readBytes(msg->value.data(), sz);
-                }
+                    auto key = get_key(datum, *keyschema);
 
-                messages.push_back(msg);
-                if (messages.size() > 1000)
+                    //encode key
+                    {
+                        auto os = avro_codec.encode_nonblock(key_id, key);
+                        size_t sz = os->byteCount();
+                        auto is = avro::memoryInputStream(*os);
+                        avro::StreamReader stream_reader(*is);
+                        msg->key.set_null(false);
+                        msg->key.resize(sz);
+                        stream_reader.readBytes(msg->key.data(), sz);
+                    }
+
+                    //encode value
+                    {
+                        auto os = avro_codec.encode_nonblock(val_id, datum);
+                        size_t sz = os->byteCount();
+                        auto is = avro::memoryInputStream(*os);
+                        avro::StreamReader stream_reader(*is);
+                        msg->value.set_null(false);
+                        msg->value.resize(sz);
+                        stream_reader.readBytes(msg->value.data(), sz);
+                    }
+
+                    messages.push_back(msg);
+                    if (messages.size() > 1000)
+                    {
+                        if (!dry_run)
+                            producer.send_sync(messages);
+                        messages.clear();
+                    }
+
+
+                    //std::cerr << to_json(schema, datum) << std::endl;
+                    //extract key from this
+                    //avro::GenericDatum key_datum(*keyschema);
+
+                    //std::cerr << to_json(*keyschema, *key) << std::endl;
+                }
+                if (messages.size() > 0)
                 {
                     if (!dry_run)
                         producer.send_sync(messages);
                     messages.clear();
                 }
-
-
-                //std::cerr << to_json(schema, datum) << std::endl;
-                //extract key from this
-                //avro::GenericDatum key_datum(*keyschema);
-
-                //std::cerr << to_json(*keyschema, *key) << std::endl;
             }
-            if (messages.size() > 0)
+            catch (std::exception& e)
             {
-                if (!dry_run)
-                    producer.send_sync(messages);
-                messages.clear();
+                BOOST_LOG_TRIVIAL(error) << "exception " << e.what();
             }
-        }
-        catch (std::exception& e)
-        {
-            BOOST_LOG_TRIVIAL(error) << "exception " << e.what();
         }
     }
 
     if (operation == DELETE_OP)
     {
-
-        BOOST_LOG_TRIVIAL(trace) << "registering schema";
-        auto key_res = avro_codec.put_schema(key_schema_name, keyschema);
-        if (key_res.first != 0)
+        for (std::vector<boost::filesystem::path>::const_iterator i = files.begin(); i != files.end(); ++i)
         {
-            BOOST_LOG_TRIVIAL(error) << "registering " << key_schema_name << " at " << used_schema_registry << " failed, ec:" << confluent::codec::to_string((confluent::codec::error_code_t) key_res.first);
-            return -1;
-        }
-        BOOST_LOG_TRIVIAL(info) << "registering schema done";
-        int32_t key_id = key_res.second;
+            BOOST_LOG_TRIVIAL(info) << "deleting records from file: " << i->generic_string().c_str();
+            avro::DataFileReader<avro::GenericDatum> dfr(i->generic_string().c_str());
+            const avro::ValidSchema& schema = dfr.dataSchema();
 
-        try
-        {
-            avro::GenericDatum key_datum(*keyschema);
-            std::vector<std::shared_ptr<csi::kafka::basic_message>> messages;
-            while (dfr.read(key_datum))
+            auto keyschema = get_key_schema(key_schema_name, keys, false, dfr.dataSchema());
+
+            BOOST_LOG_TRIVIAL(trace) << "registering schema";
+            auto key_res = avro_codec.put_schema(key_schema_name, keyschema);
+            if (key_res.first != 0)
             {
-                std::shared_ptr<csi::kafka::basic_message> msg(new csi::kafka::basic_message());
-                //encode key
-                {
-                    auto os = avro_codec.encode_nonblock(key_id, key_datum);
-                    size_t sz = os->byteCount();
-                    auto is = avro::memoryInputStream(*os);
-                    avro::StreamReader stream_reader(*is);
-                    msg->key.set_null(false);
-                    msg->key.resize(sz);
-                    stream_reader.readBytes(msg->key.data(), sz);
-                }
+                BOOST_LOG_TRIVIAL(error) << "registering " << key_schema_name << " at " << used_schema_registry << " failed, ec:" << confluent::codec::to_string((confluent::codec::error_code_t) key_res.first);
+                return -1;
+            }
+            BOOST_LOG_TRIVIAL(info) << "registering schema done";
+            int32_t key_id = key_res.second;
 
-                //encode value
+            try
+            {
+                avro::GenericDatum key_datum(*keyschema);
+                std::vector<std::shared_ptr<csi::kafka::basic_message>> messages;
+                while (dfr.read(key_datum))
                 {
-                    msg->value.set_null(true);
-                }
+                    std::shared_ptr<csi::kafka::basic_message> msg(new csi::kafka::basic_message());
+                    //encode key
+                    {
+                        auto os = avro_codec.encode_nonblock(key_id, key_datum);
+                        size_t sz = os->byteCount();
+                        auto is = avro::memoryInputStream(*os);
+                        avro::StreamReader stream_reader(*is);
+                        msg->key.set_null(false);
+                        msg->key.resize(sz);
+                        stream_reader.readBytes(msg->key.data(), sz);
+                    }
 
-                messages.push_back(msg);
-                if (messages.size() > 1000)
+                    //encode value
+                    {
+                        msg->value.set_null(true);
+                    }
+
+                    messages.push_back(msg);
+                    if (messages.size() > 1000)
+                    {
+                        if (!dry_run)
+                            producer.send_sync(messages);
+                        messages.clear();
+                    }
+                }
+                if (messages.size() > 0)
                 {
                     if (!dry_run)
                         producer.send_sync(messages);
                     messages.clear();
                 }
             }
-            if (messages.size() > 0)
+            catch (std::exception& e)
             {
-                if (!dry_run)
-                    producer.send_sync(messages);
-                messages.clear();
+                BOOST_LOG_TRIVIAL(error) << "exception " << e.what();
             }
-        }
-        catch (std::exception& e)
-        {
-            BOOST_LOG_TRIVIAL(error) << "exception " << e.what();
         }
     }
 

@@ -205,7 +205,7 @@ main(int argc, char** argv)
     //std::vector<std::string> keys;
     std::string filename;
 
-    //std::string connect_string = "user=postgres password=postgres dbname=at_home";
+    //std::string connect_string = "host=localhost port=5433 user=postgres password=postgres dbname=test";
     std::string connect_string;
     std::string table_name;
 
@@ -403,7 +403,7 @@ main(int argc, char** argv)
     int ec = connection->connect(connect_string);
     if (ec)
     {
-        std::cerr << connection->get_log_id() << " connect failed ec:" << ec << " last_error:" << connection->last_error() << std::endl;
+        BOOST_LOG_TRIVIAL(error) << connection->get_log_id() << " connect failed ec:" << ec << " last_error:" << connection->last_error();
         return -1;
     }
 
@@ -423,7 +423,7 @@ main(int argc, char** argv)
 	{
 		for (std::vector<boost::filesystem::path>::const_iterator i = files.begin(); i != files.end(); ++i)
 		{
-			std::cerr << "adding file: " << i->generic_string().c_str() << std::endl;
+            BOOST_LOG_TRIVIAL(info) << "adding file: " << i->generic_string().c_str();
 			avro::DataFileReader<avro::GenericDatum> dfr(i->generic_string().c_str());
 			const avro::ValidSchema& schema = dfr.dataSchema();
 
@@ -435,7 +435,7 @@ main(int argc, char** argv)
 				//std::cerr << values << std::endl;
 
 				sql_values.push_back(values);
-				if (sql_values.size() > 1000)
+				if (sql_values.size() > 100000)
 				{
 					std::string column_names = avro2sql_column_names(schema, datum);
 					std::string statement = "insert into " + table_name + " " + column_names + " VALUES\n";
@@ -451,7 +451,7 @@ main(int argc, char** argv)
 						auto res = connection->exec(statement);
 						if (res.first)
 						{
-							std::cerr << connection->get_log_id() << " insert failed ec:" << ec << " last_error:" << connection->last_error() << std::endl;
+                            BOOST_LOG_TRIVIAL(error) << connection->get_log_id() << " insert failed ec:" << ec << " last_error:" << connection->last_error();
 							return -1;
 						}
 						//std::cerr << connection->get_log_id() << " done!!" << std::endl;
@@ -478,17 +478,15 @@ main(int argc, char** argv)
 					auto res = connection->exec(statement);
 					if (res.first)
 					{
-						std::cerr << connection->get_log_id() << " insert failed ec:" << ec << " last_error:" << connection->last_error() << std::endl;
+                        BOOST_LOG_TRIVIAL(error) << connection->get_log_id() << " insert failed ec:" << ec << " last_error:" << connection->last_error();
 						return -1;
 					}
 					//std::cerr << connection->get_log_id() << " done!!" << std::endl;
 				}
 			}
 		}
+        BOOST_LOG_TRIVIAL(info) << "add files done";
 	}
-
-
-
 
     //start transaction?
     //commit??
