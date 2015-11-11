@@ -17,8 +17,8 @@ namespace csi
         typedef std::pair<int32_t, boost::shared_ptr<phoebe::get_records_response_t>>  get_value_result;
         typedef boost::function <void(get_value_result)>                               get_value_callback;
 
-        phoebe_client(boost::asio::io_service& ios);
-        void             async_get(const std::string& address, const std::vector<boost::uuids::uuid>& v, get_value_callback);
+        phoebe_client(boost::asio::io_service& ios, const std::string& address);
+        void             async_get(const std::vector<boost::uuids::uuid>& v, get_value_callback);
         get_value_result get(const std::vector<boost::uuids::uuid>& v);
 		inline boost::asio::io_service& ios() { return _ios; }
 	private:
@@ -26,6 +26,7 @@ namespace csi
         
         boost::asio::io_service&  _ios;
 		csi::http_client          _http;
+        std::string               _address;
 	};
 };
 

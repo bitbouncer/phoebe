@@ -35,15 +35,16 @@ namespace csi
         return to_string((csi::http::status_type) ec);
     }
 
-    phoebe_client::phoebe_client(boost::asio::io_service& ios) :
+    phoebe_client::phoebe_client(boost::asio::io_service& ios, const std::string& address) :
         _ios(ios),
-        _http(ios)
+        _http(ios),
+        _address(address)
     {
     }
 
-    void phoebe_client::async_get(const std::string& address, const std::vector<boost::uuids::uuid>& v, get_value_callback cb)
+    void phoebe_client::async_get(const std::vector<boost::uuids::uuid>& v, get_value_callback cb)
     {
-        std::string uri = "http://" + address + "/test.svante.eu_all_as_avro";
+        std::string uri = "http://" + _address;;
         phoebe::get_records_request_t request;
 
         for (std::vector<boost::uuids::uuid>::const_iterator i = v.begin(); i != v.end(); ++i)
@@ -86,25 +87,15 @@ namespace csi
         });
     }
 
-    // csi::phoebe_client::get_value_result phoebe_client::get(const std::vector<boost::uuids::uuid>& v)
-    // {
-    //     //std::pair<std::shared_ptr<csi::http_client::call_context>, boost::shared_ptr<avro::ValidSchema>> 
-    //     std::promise<std::pair<std::shared_ptr<csi::http_client::call_context>, boost::shared_ptr<avro::ValidSchema>>> p;
-    //     std::future<std::pair<std::shared_ptr<csi::http_client::call_context>, boost::shared_ptr<avro::ValidSchema>>>  f = p.get_future();
-    //     get_schema_by_id(id, [&p](std::shared_ptr<csi::http_client::call_context> call_context, boost::shared_ptr<avro::ValidSchema> schema)
-    //     {
-    //         std::pair<std::shared_ptr<csi::http_client::call_context>, boost::shared_ptr<avro::ValidSchema>> res(call_context, schema);
-    //         p.set_value(res);
-    //     });
-    //     f.wait();
-    //     std::pair<std::shared_ptr<csi::http_client::call_context>, boost::shared_ptr<avro::ValidSchema>> res = f.get();
-    //     int32_t http_res = res.first->http_result();
-    //     if (http_res >= 200 && http_res < 300)
-    //     {
-    //         //add to in cache first
-    //         return res.second;
-    //     }
-    //     //exception???
-    //     return NULL;
-    //}
+     csi::phoebe_client::get_value_result phoebe_client::get(const std::vector<boost::uuids::uuid>& v)
+     {
+         std::promise<get_value_result> p;
+         std::future<get_value_result>  f = p.get_future();
+         async_get(v, [&p](get_value_result result)
+         {
+             p.set_value(result);
+         });
+         f.wait();
+         return f.get();
+    }
 }; // namespace
