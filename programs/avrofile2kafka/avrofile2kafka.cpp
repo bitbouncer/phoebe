@@ -121,7 +121,6 @@ boost::shared_ptr<avro::Schema> create_hive_strict_key_schema(avro::Type t)
     };
 }
 
-
 boost::shared_ptr<avro::ValidSchema>  get_key_schema(const avro::Name base_name, const std::vector<std::string>& keys, bool allow_null, const avro::ValidSchema& src_schema)
 {
     auto r = src_schema.root();
