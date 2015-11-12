@@ -73,6 +73,7 @@ public:
         _consumer.connect(brokers);
         _consumer.connect_forever(brokers); // ugly..
         _consumer.set_offset(csi::kafka::earliest_available_offset);
+        //_consumer.set_offset(csi::kafka::latest_offsets);
 
         _consumer.stream_async([this](const boost::system::error_code& ec1, csi::kafka::error_codes ec2, std::shared_ptr<csi::kafka::fetch_response::topic_data::partition_data> response)
         {
@@ -101,7 +102,8 @@ public:
                 }
 
                 boost::uuids::uuid key = get_md5((*i)->key.data(), (*i)->key.size());
-
+                //BOOST_LOG_TRIVIAL(info) << "got hash: " << to_string(key);
+                
                 {
                     // lock access to storage
                     boost::mutex::scoped_lock xxx(_mutex);
