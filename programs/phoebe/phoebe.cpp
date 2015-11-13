@@ -28,7 +28,10 @@
 #include <boost/thread/recursive_mutex.hpp>
 #include <boost/bind.hpp>
 #include <boost/uuid/uuid.hpp>
+#include <boost/uuid/uuid_io.hpp>
+#include <boost/uuid/uuid_generators.hpp>
 #include <boost/program_options.hpp>
+#include <boost/endian/arithmetic.hpp>
 #include <boost/uuid/string_generator.hpp>
 #include <csi_http/server/http_server.h>
 #include <csi_http/csi_http.h>
@@ -40,8 +43,6 @@
 #include <phoebe/avro/get_records_response_t.h>
 #include <openssl/md5.h>
 
-#include <boost/uuid/uuid_io.hpp>
-#include <boost/uuid/uuid_generators.hpp>
 
 size_t _remaining_records = 0;
 
@@ -60,9 +61,10 @@ static boost::uuids::string_generator uuid_from_string;
 class rest_handler
 {
 public:
-    rest_handler(boost::asio::io_service& ios, const std::string& topic_name) :
+    rest_handler(boost::asio::io_service& ios, const std::string& topic_name, const std::vector<int>& key_schema_mask) :
         _consumer(ios, topic_name, 500, 1000000),
-        _insync(false)
+        _insync(false),
+        _key_schema_mask(key_schema_mask)
     {
     }
 
@@ -90,7 +92,7 @@ public:
             }
 
             int partition_id = response->partition_id;
-            int last_offset = -1;
+            int64_t last_offset = -1;
             for (std::vector<std::shared_ptr<csi::kafka::basic_message>>::const_iterator i = response->messages.begin(); i != response->messages.end(); ++i)
             {
                 //std::map<boost::uuids::uuid, boost::shared_ptr<std::vector<uint8_t>>> data;
@@ -101,9 +103,25 @@ public:
                     continue;
                 }
 
+                if (_key_schema_mask.size())
+                {
+                    if ((*i)->key.size() < 4)
+                    {
+                        continue;
+                    }
+
+                    int32_t be;
+                    memcpy(&be, (*i)->key.data(), 4);
+                    int32_t key_schema_id = boost::endian::big_to_native<int32_t>(be);
+
+                    // should this key be included
+                    if (std::find(std::begin(_key_schema_mask), std::end(_key_schema_mask), key_schema_id) == std::end(_key_schema_mask))
+                    {
+                        continue;
+                    }
+                }
+
                 boost::uuids::uuid key = get_md5((*i)->key.data(), (*i)->key.size());
-                //BOOST_LOG_TRIVIAL(info) << "got hash: " << to_string(key);
-                
                 {
                     // lock access to storage
                     boost::mutex::scoped_lock xxx(_mutex);
@@ -224,7 +242,8 @@ public:
     std::map<boost::uuids::uuid, boost::shared_ptr<std::vector<uint8_t>>> _data;
     std::map<int, int64_t>        _highwater_mark_offset;
     std::map<int, int64_t>        _last_offset;
-    bool _insync;
+    std::vector<int>              _key_schema_mask;
+    bool                          _insync;
 };
 
 int main(int argc, char** argv)
@@ -245,6 +264,7 @@ int main(int argc, char** argv)
         ("bind_to", boost::program_options::value<std::string>()->default_value(my_address), "bind_to")
         ("topic", boost::program_options::value<std::string>(), "topic")
         ("broker", boost::program_options::value<std::string>(), "broker")
+        ("key_schema_id", boost::program_options::value<std::string>(), "key_schema_id")
         ;
 
     boost::program_options::variables_map vm;
@@ -303,6 +323,35 @@ int main(int argc, char** argv)
         return 0;
     }
 
+    std::vector<int> key_schemas;
+    if (vm.count("key_schema_id"))
+    {
+        std::string s = vm["key_schema_id"].as<std::string>();
+
+        //special case *
+        if (s == "*")
+        {
+        }
+        else
+        {
+            // now find the brokers...
+            size_t last_separator = s.find_last_of(',');
+            while (last_separator != std::string::npos)
+            {
+                std::string token = s.substr(last_separator + 1);
+                key_schemas.push_back(atoi(token.c_str()));
+                s = s.substr(0, last_separator);
+                last_separator = s.find_last_of(',');
+            }
+            key_schemas.push_back(atoi(s.c_str()));
+        }
+    }
+    else
+    {
+        std::cout << "--key_schema_id must be specified" << std::endl;
+        return 0;
+    }
+
     std::cout << "binding http to: " << my_address << ":" << http_port << std::endl;
     std::cout << "broker(s)      : ";
     for (std::vector<csi::kafka::broker_address>::const_iterator i = brokers.begin(); i != brokers.end(); ++i)
@@ -324,7 +373,7 @@ int main(int argc, char** argv)
 
     try
     {
-        rest_handler handler(ios, topic);
+        rest_handler handler(ios, topic, key_schemas);
         handler.connect(brokers);
 
 

@@ -4,10 +4,24 @@
 #include <boost/log/expressions.hpp>
 #include <boost/program_options.hpp>
 #include <boost/endian/arithmetic.hpp>
-
+#include <boost/uuid/uuid.hpp>
+#include <boost/uuid/uuid_io.hpp>
 #include <csi_kafka/kafka.h>
 #include <csi_kafka/highlevel_consumer.h>
 #include <csi_kafka/highlevel_producer.h>
+
+#include <openssl/md5.h>
+static boost::uuids::uuid get_md5(const void* data, size_t size)
+{
+    MD5_CTX ctx;
+    MD5_Init(&ctx);
+    MD5_Update(&ctx, data, size);
+    boost::uuids::uuid uuid;
+    MD5_Final(uuid.data, &ctx);
+    return uuid;
+}
+
+
 
 int main(int argc, char** argv)
 {
@@ -17,7 +31,9 @@ int main(int argc, char** argv)
         ("help", "produce help message")
         ("topic", boost::program_options::value<std::string>(), "topic")
         ("broker", boost::program_options::value<std::string>(), "broker")
-        ("key_schema_id", boost::program_options::value<int>(), "key_schema_id")
+        ("partition", boost::program_options::value<std::string>(), "partition")
+        ("key_schema_id", boost::program_options::value<std::string>(), "key_schema_id")
+        ("write,w", boost::program_options::bool_switch()->default_value(false), "write to kafka")
         ("log_level", boost::program_options::value<boost::log::trivial::severity_level>(&log_level)->default_value(boost::log::trivial::info), "log level to output");
     ;
 
@@ -85,11 +101,71 @@ int main(int argc, char** argv)
         return -1;
     }
 
+
+    std::vector<int> key_schemas;
+    bool delete_all = false;
+    if (vm.count("key_schema_id"))
+    {
+        std::string s = vm["key_schema_id"].as<std::string>();
+
+        //special case *
+        if (s == "*")
+        {
+            delete_all = true;
+        }
+        else
+        {
+            // now find the brokers...
+            size_t last_separator = s.find_last_of(',');
+            while (last_separator != std::string::npos)
+            {
+                std::string token = s.substr(last_separator + 1);
+                key_schemas.push_back(atoi(token.c_str()));
+                s = s.substr(0, last_separator);
+                last_separator = s.find_last_of(',');
+            }
+            key_schemas.push_back(atoi(s.c_str()));
+        }
+    }
+    else
+    {
+        std::cout << "--key_schema_id must be specified" << std::endl;
+        return 0;
+    }
+
+    std::vector<int> partition_mask;
+    if (vm.count("partition"))
+    {
+        std::string s = vm["partition"].as<std::string>();
+
+        //special case *
+        if (s == "*")
+        {
+        }
+        else
+        {
+            // now find the brokers...
+            size_t last_separator = s.find_last_of(',');
+            while (last_separator != std::string::npos)
+            {
+                std::string token = s.substr(last_separator + 1);
+                partition_mask.push_back(atoi(token.c_str()));
+                s = s.substr(0, last_separator);
+                last_separator = s.find_last_of(',');
+            }
+            partition_mask.push_back(atoi(s.c_str()));
+        }
+    }
+
+    bool dry_run = true;
+    if (vm["write"].as<bool>())
+        dry_run = false;
+
     boost::asio::io_service io_service;
     std::auto_ptr<boost::asio::io_service::work> work(new boost::asio::io_service::work(io_service));
     boost::thread bt(boost::bind(&boost::asio::io_service::run, &io_service));
     
-    csi::kafka::highlevel_consumer consumer(io_service, topic, 500, 1000000);
+    csi::kafka::highlevel_consumer consumer(io_service, topic, partition_mask, 500, 1000000);
     csi::kafka::highlevel_producer producer(io_service, topic, -1, 500, 1000000);
 
     consumer.connect(brokers);
@@ -113,32 +189,12 @@ int main(int argc, char** argv)
 
     consumer.set_offset(csi::kafka::earliest_available_offset);
 
-    //boost::thread do_log([&consumer]
-    //{
-    //    boost::accumulators::accumulator_set<double, boost::accumulators::stats<boost::accumulators::tag::rolling_mean> > acc(boost::accumulators::tag::rolling_window::window_size = 10);
-    //    while (true)
-    //    {
-    //        boost::this_thread::sleep(boost::posix_time::seconds(1));
-
-    //        std::vector<csi::kafka::highlevel_consumer::metrics>  metrics = consumer.get_metrics();
-    //        uint32_t rx_msg_sec_total = 0;
-    //        uint32_t rx_kb_sec_total = 0;
-    //        for (std::vector<csi::kafka::highlevel_consumer::metrics>::const_iterator i = metrics.begin(); i != metrics.end(); ++i)
-    //        {
-    //            //std::cerr << "\t partiton:" << (*i).partition << "\t" << (*i).rx_msg_sec << " msg/s \t" << ((*i).rx_kb_sec/1024) << "MB/s \troundtrip:" << (*i).rx_roundtrip << " ms" << std::endl;
-    //            rx_msg_sec_total += (*i).rx_msg_sec;
-    //            rx_kb_sec_total += (*i).rx_kb_sec;
-    //        }
-    //        BOOST_LOG_TRIVIAL(info) << "RX: " << rx_msg_sec_total << " msg/s \t" << (rx_kb_sec_total / 1024) << "MB/s";
-    //    }
-    //});
-
     std::map<int, int64_t> last_offset;
-    size_t _remaining_records=-1;
-    size_t _deleted = 0;
-    
+    int64_t _remaining_records=1;
 
-    consumer.stream_async([&last_offset, &highwater_mark_offset, &_remaining_records, &producer, &_deleted](const boost::system::error_code& ec1, csi::kafka::error_codes ec2, std::shared_ptr<csi::kafka::fetch_response::topic_data::partition_data> response)
+    std::map<boost::uuids::uuid, std::shared_ptr<csi::kafka::basic_message>> _to_delete;
+
+    consumer.stream_async([delete_all, key_schemas, &last_offset, &highwater_mark_offset, &_remaining_records, &_to_delete](const boost::system::error_code& ec1, csi::kafka::error_codes ec2, std::shared_ptr<csi::kafka::fetch_response::topic_data::partition_data> response)
     {
         if (ec1 || ec2)
         {
@@ -151,16 +207,13 @@ int main(int argc, char** argv)
             BOOST_LOG_TRIVIAL(error) << "stream failed for partition: " << response->partition_id << " ec:" << csi::kafka::to_string((csi::kafka::error_codes) response->error_code);
             return;
         }
-        std::vector<std::shared_ptr<csi::kafka::basic_message>> messages;
         int partition_id = response->partition_id;
-        int lo = -1;
+        int64_t lo = -1;
         for (std::vector<std::shared_ptr<csi::kafka::basic_message>>::const_iterator i = response->messages.begin(); i != response->messages.end(); ++i)
         {
-            //std::map<boost::uuids::uuid, boost::shared_ptr<std::vector<uint8_t>>> data;
-            //md5 of key
             if ((*i)->key.is_null())
             {
-                BOOST_LOG_TRIVIAL(warning) << "got key==NULL";
+                //BOOST_LOG_TRIVIAL(warning) << "got key==NULL";
                 continue;
             }
 
@@ -174,59 +227,84 @@ int main(int argc, char** argv)
             memcpy(&be, (*i)->key.data(), 4);
             int32_t key_schema_id = boost::endian::big_to_native<int32_t>(be);
 
-            //if match.... we should have a regesp here to match schema..
-            //kill it...
-
-            //not already dead
-            if (!(*i)->value.is_null())
+            // should we kill this schema?
+            if (delete_all || std::find(std::begin(key_schemas), std::end(key_schemas), key_schema_id) != std::end(key_schemas))
             {
-                std::shared_ptr<csi::kafka::basic_message> msg(new csi::kafka::basic_message());
-                msg->key = (*i)->key;
-                msg->value.set_null(true);
-                msg->partition = partition_id; // make sure we write the same partion that we got the message from...
-                messages.push_back(msg);
-                _deleted++;
+                boost::uuids::uuid key = get_md5((*i)->key.data(), (*i)->key.size());
+
+                //not already dead
+                if (!(*i)->value.is_null())
+                {
+                    std::map<boost::uuids::uuid, std::shared_ptr<csi::kafka::basic_message>>::iterator item = _to_delete.find(key);
+                    if (item == _to_delete.end())
+                    {
+                        std::shared_ptr<csi::kafka::basic_message> msg(new csi::kafka::basic_message());
+                        msg->key = (*i)->key;
+                        msg->value.set_null(true);
+                        msg->partition = partition_id; // make sure we write the same partion that we got the message from...
+                        _to_delete[key] = msg;
+                    }
+                }
+                else
+                {
+                    //we must search map to se if we should refrain from deleting the item since a deleete marker is already on kafka. (the previous messages has not yet been removed by compaction)
+                    //std::map<boost::uuids::uuid, std::shared_ptr<csi::kafka::basic_message>>
+                    std::map<boost::uuids::uuid, std::shared_ptr<csi::kafka::basic_message>>::iterator item = _to_delete.find(key);
+                    if (item != _to_delete.end())
+                    {
+                        _to_delete.erase(item);
+                    }
+                }
             }
             lo = (*i)->offset;
         }
         if (lo >= 0)
             last_offset[partition_id] = lo;
 
-        producer.send_async(messages,[](int32_t ec)
-        {
-            std::cerr << "-";
-        }); // we don't wait here - this might be bad if we read fast and produce slow...
-
-        size_t remaining_records = 0;
+        int64_t remaining_records = 0;
         for (std::map<int, int64_t>::const_iterator i = highwater_mark_offset.begin(); i != highwater_mark_offset.end(); ++i)
-            remaining_records += (i->second - 1) - last_offset[i->first];
-
+            remaining_records += ((int64_t)(i->second - 1)) - (int64_t) last_offset[i->first];
         _remaining_records = remaining_records;
     });
 
     while (true)
     {
         boost::this_thread::sleep(boost::posix_time::seconds(1));
-        BOOST_LOG_TRIVIAL(info) << " deleted: " << _deleted << ", remaining: " << _remaining_records << ", tx queue: " << producer.items_in_queue();
-        if (_remaining_records == 0)
+        BOOST_LOG_TRIVIAL(info) << " to be deleted: " << _to_delete.size() << ", remaining: " << _remaining_records;
+        if (_remaining_records <= 0)
             break;
     }
     BOOST_LOG_TRIVIAL(info) << "consumer finished";
-
-    while (true)
-    {
-        boost::this_thread::sleep(boost::posix_time::seconds(1));
-        if (producer.items_in_queue() == 0)
-        {
-            break;
-        }
-    }
-
-    BOOST_LOG_TRIVIAL(info) << "producer finished";
     consumer.close();
     BOOST_LOG_TRIVIAL(info) << "consumer closed";
-    //producer.close();
-    //BOOST_LOG_TRIVIAL(info) << "producer closed";
+
+    BOOST_LOG_TRIVIAL(info) << "sending delete messages";
+
+    std::vector<std::shared_ptr<csi::kafka::basic_message>> messages;
+    for (std::map<boost::uuids::uuid, std::shared_ptr<csi::kafka::basic_message>>::iterator i = _to_delete.begin(); i != _to_delete.end(); ++i)
+    {
+        messages.push_back(i->second);
+    }
+    if (messages.size())
+    {
+        if (!dry_run)
+        {
+            producer.send_sync(messages);
+        }
+        else
+        {
+            std::cout << "dry run - should write " << messages.size() << " add -w to delete from kafka" << std::endl;
+        }
+    }
+    else
+    {
+        std::cout << "uptodate - nothing to do" << std::endl;
+    }
+    BOOST_LOG_TRIVIAL(info) << "producer finished";
+    producer.close();
+    BOOST_LOG_TRIVIAL(info) << "producer closed";
+    boost::this_thread::sleep(boost::posix_time::seconds(5));
+    BOOST_LOG_TRIVIAL(info) << "done";
     work.reset();
     io_service.stop();
     return EXIT_SUCCESS;
