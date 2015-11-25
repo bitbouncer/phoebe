@@ -4,9 +4,20 @@
 #include <boost/log/expressions.hpp>
 #include <boost/program_options.hpp>
 #include <boost/endian/arithmetic.hpp>
-
+#include <boost/uuid/uuid.hpp>
 #include <csi_kafka/kafka.h>
 #include <csi_kafka/highlevel_consumer.h>
+#include <openssl/md5.h>
+
+static boost::uuids::uuid get_md5(const void* data, size_t size)
+{
+    MD5_CTX ctx;
+    MD5_Init(&ctx);
+    MD5_Update(&ctx, data, size);
+    boost::uuids::uuid uuid;
+    MD5_Final(uuid.data, &ctx);
+    return uuid;
+}
 
 int main(int argc, char** argv)
 {
@@ -141,12 +152,14 @@ int main(int argc, char** argv)
 
     consumer.set_offset(csi::kafka::earliest_available_offset);
 
-    std::map<int, int64_t> last_offset;
-    std::map<int, int64_t> key_schema_count;
-    std::map<int, int64_t> value_schema_count;
-    int64_t                _remaining_records = 1; // to prevent exit loop before first run
+    std::map<int, int64_t>                last_offset;
+    std::map<boost::uuids::uuid, int64_t> key_count; // hash of keys -> count
+    std::map<int, int64_t>                key_schema_count;
+    std::map<int, int64_t>                value_schema_count;
 
-    consumer.stream_async([&key_schema_count, &value_schema_count, &last_offset, &highwater_mark_offset, &_remaining_records](const boost::system::error_code& ec1, csi::kafka::error_codes ec2, std::shared_ptr<csi::kafka::fetch_response::topic_data::partition_data> response)
+    int64_t _remaining_records = 1; // to prevent exit loop before first run
+
+    consumer.stream_async([&key_count, &key_schema_count, &value_schema_count, &last_offset, &highwater_mark_offset, &_remaining_records](const boost::system::error_code& ec1, csi::kafka::error_codes ec2, std::shared_ptr<csi::kafka::fetch_response::topic_data::partition_data> response)
     {
         if (ec1 || ec2)
         {
@@ -177,6 +190,9 @@ int main(int argc, char** argv)
                 BOOST_LOG_TRIVIAL(warning) << "got keysize==" << (*i)->key.size();
                 continue;
             }
+
+
+            auto md5 = get_md5((*i)->key.data(), (*i)->key.size());
                      
             int32_t be;
             memcpy(&be, (*i)->key.data(), 4);
@@ -189,6 +205,11 @@ int main(int argc, char** argv)
                     BOOST_LOG_TRIVIAL(warning) << "got valuesize==" << (*i)->value.size();
                     continue;
                 }
+
+                if (key_count.find(md5) == key_count.end())
+                    key_count[md5] = 1;
+                else
+                    key_count[md5]++;
 
                 int32_t be;
                 memcpy(&be, (*i)->value.data(), 4);
@@ -203,6 +224,17 @@ int main(int argc, char** argv)
                     value_schema_count[value_schema_id] = 1;
                 else
                     value_schema_count[value_schema_id]++;
+            }
+            else // decrease usage count if key is not already deleted 
+            {
+                int64_t usage_count = 0;
+                if (key_count.find(md5) != key_count.end())
+                {
+                    usage_count = --key_count[md5];
+                    --key_schema_count[key_schema_id];
+                }
+                if (usage_count == 0)
+                    key_count.erase(md5);
             }
             lo = (*i)->offset;
         }
