@@ -4,7 +4,7 @@
 
 #pragma once
 
-enum PG_OIDS 
+enum PG_OIDS
 {
     BOOLOID = 16,
     BYTEAOID = 17,

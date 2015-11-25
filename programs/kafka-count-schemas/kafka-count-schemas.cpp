@@ -193,7 +193,7 @@ int main(int argc, char** argv)
 
 
             auto md5 = get_md5((*i)->key.data(), (*i)->key.size());
-                     
+
             int32_t be;
             memcpy(&be, (*i)->key.data(), 4);
             int32_t key_schema_id = boost::endian::big_to_native<int32_t>(be);

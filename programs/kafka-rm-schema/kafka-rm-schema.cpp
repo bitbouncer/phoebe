@@ -164,7 +164,7 @@ int main(int argc, char** argv)
     boost::asio::io_service io_service;
     std::auto_ptr<boost::asio::io_service::work> work(new boost::asio::io_service::work(io_service));
     boost::thread bt(boost::bind(&boost::asio::io_service::run, &io_service));
-    
+
     csi::kafka::highlevel_consumer consumer(io_service, topic, partition_mask, 500, 1000000);
     csi::kafka::highlevel_producer producer(io_service, topic, -1, 500, 1000000);
 
@@ -183,14 +183,14 @@ int main(int argc, char** argv)
     std::map<int, int64_t> highwater_mark_offset;
     consumer.set_offset(csi::kafka::latest_offsets);
     std::vector<csi::kafka::highlevel_consumer::fetch_response> response = consumer.fetch();
-    
+
     for (std::vector<csi::kafka::highlevel_consumer::fetch_response>::const_iterator i = response.begin(); i != response.end(); ++i)
         highwater_mark_offset[i->data->partition_id] = i->data->highwater_mark_offset;
 
     consumer.set_offset(csi::kafka::earliest_available_offset);
 
     std::map<int, int64_t> last_offset;
-    int64_t _remaining_records=1;
+    int64_t _remaining_records = 1;
 
     std::map<boost::uuids::uuid, std::shared_ptr<csi::kafka::basic_message>> _to_delete;
 
@@ -263,7 +263,7 @@ int main(int argc, char** argv)
 
         int64_t remaining_records = 0;
         for (std::map<int, int64_t>::const_iterator i = highwater_mark_offset.begin(); i != highwater_mark_offset.end(); ++i)
-            remaining_records += ((int64_t)(i->second - 1)) - (int64_t) last_offset[i->first];
+            remaining_records += ((int64_t)(i->second - 1)) - (int64_t)last_offset[i->first];
         _remaining_records = remaining_records;
     });
 

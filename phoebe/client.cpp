@@ -66,7 +66,7 @@ namespace csi
 
             if (request->http_result() >= 200 && request->http_result() < 300)
             {
-                BOOST_LOG_TRIVIAL(info) <<  "phoebe_client::async_get: "        << request->uri() << ":" << request->http_result() << ", duration=" << request->milliseconds() << "(ms)";
+                BOOST_LOG_TRIVIAL(info) << "phoebe_client::async_get: " << request->uri() << ":" << request->http_result() << ", duration=" << request->milliseconds() << "(ms)";
                 BOOST_LOG_TRIVIAL(trace) << "phoebe_client::async_get: content" << to_string(request->rx_content());
                 try
                 {
@@ -87,15 +87,15 @@ namespace csi
         });
     }
 
-     csi::phoebe_client::get_value_result phoebe_client::get(const std::vector<boost::uuids::uuid>& v)
-     {
-         std::promise<get_value_result> p;
-         std::future<get_value_result>  f = p.get_future();
-         async_get(v, [&p](get_value_result result)
-         {
-             p.set_value(result);
-         });
-         f.wait();
-         return f.get();
+    csi::phoebe_client::get_value_result phoebe_client::get(const std::vector<boost::uuids::uuid>& v)
+    {
+        std::promise<get_value_result> p;
+        std::future<get_value_result>  f = p.get_future();
+        async_get(v, [&p](get_value_result result)
+        {
+            p.set_value(result);
+        });
+        f.wait();
+        return f.get();
     }
 }; // namespace

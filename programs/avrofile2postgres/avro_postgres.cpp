@@ -318,7 +318,7 @@ std::vector<boost::shared_ptr<avro::GenericDatum>> to_avro(boost::shared_ptr<avr
     for (int i = 0; i < nRows; i++)
     {
         boost::shared_ptr<avro::GenericDatum> gd = boost::make_shared<avro::GenericDatum>(*schema);
-        assert(gd->type() == avro::AVRO_RECORD); 
+        assert(gd->type() == avro::AVRO_RECORD);
         avro::GenericRecord& record(gd->value<avro::GenericRecord>());
         for (int j = 0; j < nFields; j++)
         {
@@ -381,7 +381,7 @@ std::vector<boost::shared_ptr<avro::GenericDatum>> to_avro(boost::shared_ptr<avr
 
         //std::cerr << std::endl;
 
-         //avro::encode(*encoder, *gd);
+        //avro::encode(*encoder, *gd);
         // I create a DataFileWriter and i write my pair of ValidSchema and GenericValue
         //avro::DataFileWriter<Pair> dataFileWriter("test.bin", schema);
         //dataFileWriter.write(p);
@@ -535,20 +535,20 @@ std::string postgres_type(avro::Type t)
 /*
 std::string escapeSQL(SQLConnection & connection, const std::string & dataIn)
 {
-    // This might be better as an assertion or exception, if an empty string
-    // is considered an error. Depends on your requirements for this function.
-    if (dataIn.empty())
-    {
-        return "";
-    }
+// This might be better as an assertion or exception, if an empty string
+// is considered an error. Depends on your requirements for this function.
+if (dataIn.empty())
+{
+return "";
+}
 
-    const std::size_t dataInLen = dataIn.length();
-    std::vector<char> temp((dataInLen * 2) + 1, '\0');
-    mysql_real_escape_string(&connection, temp.data(), dataIn.c_str(), dataInLen);
+const std::size_t dataInLen = dataIn.length();
+std::vector<char> temp((dataInLen * 2) + 1, '\0');
+mysql_real_escape_string(&connection, temp.data(), dataIn.c_str(), dataInLen);
 
-    return temp.data();
-    // Will create a new string but the compiler is likely 
-    // to optimize this to a cheap move operation (C++11).
+return temp.data();
+// Will create a new string but the compiler is likely
+// to optimize this to a cheap move operation (C++11).
 }
 */
 
@@ -583,7 +583,7 @@ std::string avro2sql_values(const avro::ValidSchema& schema, avro::GenericDatum&
     assert(datum.type() == avro::AVRO_RECORD);
     avro::GenericRecord& record(datum.value<avro::GenericRecord>());
     size_t nFields = record.fieldCount();
-    for (int i= 0; i < nFields; i++)
+    for (int i = 0; i < nFields; i++)
     {
         std::string val;
 
@@ -686,62 +686,64 @@ std::string avro2sql_column_names(const avro::ValidSchema& schema, avro::Generic
 
 static Oid avro_type_to_oid(avro::Type avro_type)
 {
-	switch (avro_type)
-	{
-	case avro::AVRO_STRING: return TEXTOID;
-	case avro::AVRO_BYTES:  return BYTEAOID;
-	case avro::AVRO_INT:    return INT4OID;
-	case avro::AVRO_LONG:   return INT8OID;
-	case avro::AVRO_FLOAT:  return FLOAT4OID;
-	case avro::AVRO_DOUBLE: return FLOAT8OID;
-	case avro::AVRO_BOOL:   return BOOLOID;
-	case avro::AVRO_RECORD:
-	case avro::AVRO_ENUM:
-	case avro::AVRO_ARRAY:
-	case avro::AVRO_MAP:
-	case avro::AVRO_UNION:
-	case avro::AVRO_FIXED:
-	case avro::AVRO_NULL:
-	default:
-		std::cerr << "unexpectd / non supported type e:" << avro_type << std::endl;;
-		assert(false);
-	}
+    switch (avro_type)
+    {
+    case avro::AVRO_STRING: return TEXTOID;
+    case avro::AVRO_BYTES:  return BYTEAOID;
+    case avro::AVRO_INT:    return INT4OID;
+    case avro::AVRO_LONG:   return INT8OID;
+    case avro::AVRO_FLOAT:  return FLOAT4OID;
+    case avro::AVRO_DOUBLE: return FLOAT8OID;
+    case avro::AVRO_BOOL:   return BOOLOID;
+    case avro::AVRO_RECORD:
+    case avro::AVRO_ENUM:
+    case avro::AVRO_ARRAY:
+    case avro::AVRO_MAP:
+    case avro::AVRO_UNION:
+    case avro::AVRO_FIXED:
+    case avro::AVRO_NULL:
+    default:
+        std::cerr << "unexpectd / non supported type e:" << avro_type << std::endl;;
+        assert(false);
+    }
+    return TEXTOID;
 }
 
 static std::string to_string(Oid oid)
 {
-	switch ((PG_OIDS)oid)
-	{
-	case BOOLOID:    return "boolean";
-	case FLOAT4OID:  return "float4";
-	case FLOAT8OID:  return "float8";
-	case INT2OID:    return "smallint";
-	case INT4OID:    return "integer";
-	case INT8OID:    return "bigint";
-	case BYTEAOID:   return "bytea";
-	case CHAROID:    return "char";
-	case NAMEOID:    return "name";
-	case TEXTOID:    return "text";
-	default:
-		std::cerr << "unexpectd / non supported type e:" << oid << std::endl;;
-		assert(false);
-		break;
-	}
+    switch ((PG_OIDS)oid)
+    {
+    case BOOLOID:    return "boolean";
+    case FLOAT4OID:  return "float4";
+    case FLOAT8OID:  return "float8";
+    case INT2OID:    return "smallint";
+    case INT4OID:    return "integer";
+    case INT8OID:    return "bigint";
+    case BYTEAOID:   return "bytea";
+    case CHAROID:    return "char";
+    case NAMEOID:    return "name";
+    case TEXTOID:    return "text";
+    default:
+        std::cerr << "unexpectd / non supported type e:" << oid << std::endl;;
+        assert(false);
+        break;
+    }
+    return "unsupported";
 }
 
 std::string avro2sql_create_table_statement(const std::string& tablename, const avro::ValidSchema& schema)
 {
-	auto r = schema.root();
-	assert(r->type() == avro::AVRO_RECORD);
-	std::string s = "CREATE TABLE " + tablename + " (\n";
-	size_t sz = r->names();
-	for (int i = 0; i != sz; ++i)
-	{
-		s += r->nameAt(i) + " " + to_string(avro_type_to_oid(r->leafAt(i)->type()));
-		if (i != sz - 1)
-			s += ",";
-	}
-	s += ")";
-	return s;
+    auto r = schema.root();
+    assert(r->type() == avro::AVRO_RECORD);
+    std::string s = "CREATE TABLE " + tablename + " (\n";
+    size_t sz = r->names();
+    for (int i = 0; i != sz; ++i)
+    {
+        s += r->nameAt(i) + " " + to_string(avro_type_to_oid(r->leafAt(i)->type()));
+        if (i != sz - 1)
+            s += ",";
+    }
+    s += ")";
+    return s;
 }
 

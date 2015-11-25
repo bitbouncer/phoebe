@@ -87,7 +87,7 @@ public:
 
             if (response->error_code)
             {
-                BOOST_LOG_TRIVIAL(error) << "stream failed for partition: "  << response->partition_id << " ec:" << csi::kafka::to_string((csi::kafka::error_codes) response->error_code);
+                BOOST_LOG_TRIVIAL(error) << "stream failed for partition: " << response->partition_id << " ec:" << csi::kafka::to_string((csi::kafka::error_codes) response->error_code);
                 return;
             }
 
@@ -139,16 +139,16 @@ public:
 
             _highwater_mark_offset[partition_id] = response->highwater_mark_offset;
 
-            size_t remaining_records=0;
+            size_t remaining_records = 0;
             for (std::map<int, int64_t>::const_iterator i = _highwater_mark_offset.begin(); i != _highwater_mark_offset.end(); ++i)
                 remaining_records += (i->second - 1) - _last_offset[i->first];
 
-            if (!_insync && remaining_records==0)
+            if (!_insync && remaining_records == 0)
             {
                 _insync = true;
                 //BOOST_LOG_TRIVIAL(info) << "all partitions in sync";
             }
-            else if (_insync && remaining_records>0)
+            else if (_insync && remaining_records > 0)
             {
                 _insync = false;
             }
@@ -156,7 +156,7 @@ public:
             /*
             if (remaining_records > 0)
             {
-                BOOST_LOG_TRIVIAL(info) << "not synced, remaining: " << remaining_records;
+            BOOST_LOG_TRIVIAL(info) << "not synced, remaining: " << remaining_records;
             }
             */
 
