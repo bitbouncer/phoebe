@@ -403,7 +403,7 @@ main(int argc, char** argv)
     int ec = connection->connect(connect_string);
     if (ec)
     {
-        BOOST_LOG_TRIVIAL(error) << connection->get_log_id() << " connect failed ec:" << ec << " last_error:" << connection->last_error();
+        BOOST_LOG_TRIVIAL(error) << connection->trace_id() << " connect failed ec:" << ec << " last_error:" << connection->last_error();
         return -1;
     }
 
@@ -455,7 +455,7 @@ main(int argc, char** argv)
                         auto res = connection->exec(statement);
                         if (res.first)
                         {
-                            BOOST_LOG_TRIVIAL(error) << connection->get_log_id() << " insert failed ec:" << ec << " last_error:" << connection->last_error();
+                            BOOST_LOG_TRIVIAL(error) << connection->trace_id() << ", insert failed ec:" << ec << " last_error:" << connection->last_error();
                             return -1;
                         }
                         //std::cerr << connection->get_log_id() << " done!!" << std::endl;
@@ -482,7 +482,7 @@ main(int argc, char** argv)
                     auto res = connection->exec(statement);
                     if (res.first)
                     {
-                        BOOST_LOG_TRIVIAL(error) << connection->get_log_id() << " insert failed ec:" << ec << " last_error:" << connection->last_error();
+                        BOOST_LOG_TRIVIAL(error) << connection->trace_id() << ", insert failed ec:" << ec << " last_error:" << connection->last_error();
                         return -1;
                     }
                     //std::cerr << connection->get_log_id() << " done!!" << std::endl;
