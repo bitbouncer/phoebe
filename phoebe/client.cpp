@@ -52,6 +52,7 @@ namespace csi
 
         _http.perform_async(
             csi::create_avro_json_rest(
+            csi::http::POST,
             uri,
             request,
             { "Content-Type:avro/json", "Accept:avro/json" },
