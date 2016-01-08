@@ -145,10 +145,20 @@ int main(int argc, char** argv)
 
     std::map<int, int64_t> highwater_mark_offset;
     consumer.set_offset(csi::kafka::latest_offsets);
-    std::vector<csi::kafka::highlevel_consumer::fetch_response> response = consumer.fetch();
 
-    for (std::vector<csi::kafka::highlevel_consumer::fetch_response>::const_iterator i = response.begin(); i != response.end(); ++i)
-        highwater_mark_offset[i->data->partition_id] = i->data->highwater_mark_offset;
+
+    // this is assuming to much - what if anything goes wrong...
+    auto r = consumer.fetch();
+    for (std::vector<csi::kafka::rpc_result<csi::kafka::fetch_response>>::const_iterator i = r.begin(); i != r.end(); ++i)
+    {
+        for (std::vector<csi::kafka::fetch_response::topic_data>::const_iterator j = (*i)->topics.begin(); j != (*i)->topics.end(); ++j)
+        {
+            for (std::vector<std::shared_ptr<csi::kafka::fetch_response::topic_data::partition_data>>::const_iterator k = j->partitions.begin(); k != j->partitions.end(); ++k)
+            {
+                highwater_mark_offset[(*k)->partition_id] = (*k)->highwater_mark_offset;
+            }
+        }
+    }
 
     consumer.set_offset(csi::kafka::earliest_available_offset);
 
