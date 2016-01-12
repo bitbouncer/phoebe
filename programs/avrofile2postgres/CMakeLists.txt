@@ -1,11 +1,11 @@
 project(avrofile2postgres)
 
 if(WIN32)
-    SET (PGSQLSRC "C:/Program Files/PostgreSQL/9.4")
+    SET (PGSQLSRC "C:/Program Files/PostgreSQL/9.5")
     include_directories(${PGSQLSRC}/include)
     include_directories(${PGSQLSRC}/include/server)
     link_directories(${CMAKE_SOURCE_DIR}/lib/$(Platform))
-    link_directories("C:/Program Files/PostgreSQL/9.4/lib")
+    link_directories("C:/Program Files/PostgreSQL/9.5/lib")
     set(EXT_LIBS postgres_asio libpq ${EXT_LIBS}) 
 endif()    
 
