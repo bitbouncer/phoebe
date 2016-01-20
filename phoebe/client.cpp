@@ -4,9 +4,10 @@
 #include <boost/log/expressions.hpp>
 #include <boost/make_shared.hpp>
 #include <avro/Compiler.hh>
-#include <csi_http/encoding/http_rest_avro_json_encoding.h>
-#include "csi_avro_utils/utils.h"
+#include <csi_http_client/http_rest_avro_json_encoding.h>
+#include <csi_avro_utils/utils.h>
 #include <phoebe/avro/get_records_request_t.h>
+
 #include "client.h"
 #include <openssl/md5.h>
 

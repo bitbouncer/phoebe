@@ -33,10 +33,10 @@
 #include <boost/program_options.hpp>
 #include <boost/endian/arithmetic.hpp>
 #include <boost/uuid/string_generator.hpp>
-#include <csi_http/server/http_server.h>
-#include <csi_http/csi_http.h>
+#include <csi_http_server/http_server.h>
+#include <csi_http_common/csi_http.h>
 
-#include <csi_http/encoding/avro_json_encoding.h>
+#include <csi_http_common/encoding/avro_json_encoding.h>
 #include <csi_kafka/highlevel_consumer.h>
 #include <csi_kafka/internal/utility.h>
 #include <phoebe/avro/get_records_request_t.h>

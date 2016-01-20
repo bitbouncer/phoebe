@@ -1,5 +1,5 @@
 #include <map>
-#include <csi_http/client/http_client.h>
+#include <csi_http_client/http_client.h>
 #include <avro/Generic.hh>
 #include <avro/Schema.hh>
 
